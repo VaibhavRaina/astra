@@ -56,6 +56,21 @@ export class VirtualTryOnService {
       modelInfo.height!
     );
 
+
+    // Debug: Check buffer validity before inpainting
+    if (!modelBuffer || !Buffer.isBuffer(modelBuffer)) {
+      console.error('modelBuffer is invalid or undefined');
+      throw new Error('Model image buffer is invalid.');
+    }
+    if (!jewelryBuffer || !Buffer.isBuffer(jewelryBuffer)) {
+      console.error('jewelryBuffer is invalid or undefined');
+      throw new Error('Jewelry image buffer is invalid.');
+    }
+    if (!maskBuffer || !Buffer.isBuffer(maskBuffer)) {
+      console.error('maskBuffer is invalid or undefined');
+      throw new Error('Mask buffer is invalid.');
+    }
+
     // 4. IP-Adapter inpainting (placeholder generation)
     const inpaintingResult = await this.callReplicateInpainting(
       modelBuffer,
@@ -115,6 +130,10 @@ export class VirtualTryOnService {
     width: number,
     height: number
   ): Promise<Buffer> {
+    if (!region || !Array.isArray(region.points) || region.points.length === 0) {
+      console.error('Invalid region or region.points for mask generation:', region);
+      throw new Error('Invalid or missing region.points for mask generation.');
+    }
     const polygonPoints = region.points.map((p: { x: number; y: number }) => `${p.x},${p.y}`).join(' ');
     const svgMask = `<svg width="${width}" height="${height}"><polygon points="${polygonPoints}" fill="white" /></svg>`;
 
@@ -174,22 +193,59 @@ export class VirtualTryOnService {
     for (const model of models) {
       try {
         console.log(`Trying model: ${model.name}`);
-        const output = (await replicate.run(model.name, {
+        let output = await replicate.run(model.name, {
           input: model.params
-        })) as string[];
-
-        if (!output || output.length === 0) {
-          throw new Error(`No output from ${model.name}`);
+        });
+        // Handle ReadableStream output (new Replicate client)
+        // If output is a stream, check if it's an image or JSON
+        if (output && typeof (output as any).getReader === 'function') {
+          const reader = (output as any).getReader();
+          const chunks: Uint8Array[] = [];
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            chunks.push(value);
+          }
+          // Use Uint8Array for compatibility
+          // Ensure all chunks are Uint8Array for Buffer.concat
+          const uint8Chunks: Uint8Array[] = chunks.map((chunk) =>
+            chunk instanceof Uint8Array ? chunk : new Uint8Array(chunk)
+          );
+          const buffer = Buffer.concat(uint8Chunks);
+          // Try to parse as JSON first
+          try {
+            const text = buffer.toString('utf8');
+            output = JSON.parse(text);
+            // If JSON, continue as before
+            console.log('Replicate output (parsed JSON):', output);
+          } catch (e) {
+            // If not JSON, assume it's an image and return the buffer
+            console.log('Replicate output is binary, returning as image buffer.');
+            return buffer;
+          }
         }
-
-        const imageUrl = output[0];
+        console.log('Replicate output:', output);
+        // Try to extract image URL from output
+        let imageUrl: string | undefined;
+        if (Array.isArray(output) && typeof output[0] === 'string') {
+          imageUrl = output[0];
+        } else if (output && typeof output === 'object') {
+          const outObj = output as Record<string, any>;
+          if (outObj.output && Array.isArray(outObj.output) && typeof outObj.output[0] === 'string') {
+            imageUrl = outObj.output[0];
+          } else if (typeof outObj.image === 'string') {
+            imageUrl = outObj.image;
+          }
+        }
+        if (!imageUrl) {
+          throw new Error(`Unexpected or empty output from ${model.name}: ${JSON.stringify(output)}`);
+        }
         const response = await fetch(imageUrl);
         if (!response.ok) {
           throw new Error(`Failed to fetch result from ${model.name}: ${response.statusText}`);
         }
         const arrayBuffer = await response.arrayBuffer();
         return Buffer.from(arrayBuffer);
-
       } catch (error) {
         console.warn(`Model ${model.name} failed:`, error);
         lastError = error as Error;
