@@ -3,22 +3,15 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Ruler, Target, Lightbulb } from 'lucide-react';
-import { JewelryMetadata } from '@/lib/types';
+import { JewelryMetadata } from '@/lib/virtual-tryon';
+import { virtualTryOnService } from '@/lib/virtual-tryon';
 
 interface JewelryAnalysisProps {
   metadata: JewelryMetadata;
 }
 
 export function JewelryAnalysis({ metadata }: JewelryAnalysisProps) {
-  // Mock analysis data to avoid server-side calls on the client
-  const analysis = {
-    suggestedPosition: 'Earlobe',
-    scalingFactor: 1.0,
-    placementTips: [
-      'Ensure the model photo has good lighting.',
-      'A clear view of the placement area (ear, neck, hand) is crucial.',
-    ],
-  };
+  const analysis = virtualTryOnService.analyzeJewelryPlacement(metadata);
 
   return (
     <Card className="border-0 shadow-lg bg-gradient-to-br from-blue-50 to-indigo-50">
@@ -38,6 +31,10 @@ export function JewelryAnalysis({ metadata }: JewelryAnalysisProps) {
             <div className="text-xs text-slate-600 space-y-1">
               <div>Width: {metadata.width}mm</div>
               <div>Height: {metadata.height}mm</div>
+              <div>Depth: {metadata.depth}mm</div>
+              {metadata.circumference && (
+                <div>Circumference: {metadata.circumference}mm</div>
+              )}
             </div>
           </div>
           
@@ -47,11 +44,11 @@ export function JewelryAnalysis({ metadata }: JewelryAnalysisProps) {
               <span className="text-sm font-medium text-slate-700">Placement</span>
             </div>
             <div className="space-y-1">
-              <Badge variant="secondary" className="text-xs capitalize">
-                {metadata.type}
+              <Badge variant="secondary" className="text-xs">
+                {analysis.suggestedPosition}
               </Badge>
               <div className="text-xs text-slate-600">
-                Scale: 100%
+                Scale: {(analysis.scalingFactor * 100).toFixed(0)}%
               </div>
             </div>
           </div>

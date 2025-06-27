@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef } from 'react';
 import { Upload, Sparkles, Camera, Settings, Download, Zap, Gem, Eye, Wand2, User, ImageIcon, Info, Clock, Target, Users } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -13,8 +13,9 @@ import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { ProcessingSteps } from '@/components/ProcessingSteps';
 import { JewelryAnalysis } from '@/components/JewelryAnalysis';
-import { JewelryMetadata, TryOnResult, TryOnRequest, LandmarkData } from '@/lib/types';
-import { useMediaPipeLandmarks } from '@/hooks/use-mediapipe-landmarks';
+import { MediaPipeProcessor } from '@/components/MediaPipeProcessor';
+import { ImagePreprocessor } from '@/components/ImagePreprocessor';
+import { virtualTryOnService, JewelryMetadata, TryOnResult, TryOnRequest } from '@/lib/virtual-tryon';
 
 const promptSuggestions = [
   "Professional Indian woman in her 30s, elegant pose, neutral background, studio lighting",
@@ -42,6 +43,8 @@ export default function Home() {
   const [jewelryMetadata, setJewelryMetadata] = useState<JewelryMetadata>({
     width: 20,
     height: 25,
+    depth: 5,
+    circumference: 60,
     type: 'ring'
   });
   const [styleOptions, setStyleOptions] = useState({
@@ -53,16 +56,12 @@ export default function Home() {
   });
   const [isProcessing, setIsProcessing] = useState(false);
   const [result, setResult] = useState<TryOnResult | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [sizeAdjustment, setSizeAdjustment] = useState([100]);
   const [positionAdjustment, setPositionAdjustment] = useState([50]);
-  const [landmarks, setLandmarks] = useState<LandmarkData | null>(null);
-
-  const { processImage, initializeMediaPipe, isProcessing: isLandmarkProcessing } = useMediaPipeLandmarks();
-
-  useEffect(() => {
-    initializeMediaPipe();
-  }, [initializeMediaPipe]);
+  const [showPreprocessing, setShowPreprocessing] = useState(false);
+  const [showLandmarkDetection, setShowLandmarkDetection] = useState(false);
+  const [preprocessedImage, setPreprocessedImage] = useState<string | null>(null);
+  const [detectedLandmarks, setDetectedLandmarks] = useState<any>(null);
 
   const jewelryInputRef = useRef<HTMLInputElement>(null);
   const modelInputRef = useRef<HTMLInputElement>(null);
@@ -92,6 +91,7 @@ export default function Home() {
   const handleTryOn = async () => {
     if (!jewelryImage) return;
 
+    // Check if we have the required inputs for each mode
     const hasUploadInputs = activeTab === 'upload' && modelImage;
     const hasPromptInputs = activeTab === 'prompt' && modelPrompt.trim();
     const hasBothInputs = activeTab === 'both' && modelImage;
@@ -99,51 +99,21 @@ export default function Home() {
     if (!hasUploadInputs && !hasPromptInputs && !hasBothInputs) return;
 
     setIsProcessing(true);
-    setError(null);
 
     try {
-      let requestBody: TryOnRequest;
+      const request: TryOnRequest = {
+        jewelryImage,
+        jewelryMetadata,
+        modelImage: (activeTab === 'upload' || activeTab === 'both') ? modelImage || undefined : undefined,
+        modelPrompt: activeTab === 'prompt' ? modelPrompt : undefined,
+        styleOptions,
+        mode: activeTab as 'upload' | 'prompt' | 'both'
+      };
 
-      if (hasUploadInputs || hasBothInputs) {
-        const landmarkResult = await processImage(modelImage!, jewelryMetadata.type);
-        if (landmarkResult.error || !landmarkResult.landmarks) {
-          throw new Error(landmarkResult.error || 'Failed to detect landmarks.');
-        }
-        
-        requestBody = {
-          jewelryImage,
-          jewelryMetadata,
-          modelImage: modelImage!,
-          landmarks: landmarkResult.landmarks,
-          method: activeTab as 'upload' | 'both',
-        };
-      } else { // Prompt mode
-        requestBody = {
-          jewelryImage,
-          jewelryMetadata,
-          modelPrompt,
-          method: 'prompt',
-        };
-      }
-
-      const response = await fetch('/api/try-on', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(requestBody),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.details || errorData.error || 'API request failed');
-      }
-
-      const resultData: TryOnResult = await response.json();
-      setResult(resultData);
-    } catch (error: any) {
+      const tryOnResult = await virtualTryOnService.processVirtualTryOn(request);
+      setResult(tryOnResult);
+    } catch (error) {
       console.error('Try-on failed:', error);
-      setError(`Try-on failed: ${error.message}. Please check the console for more details.`);
     } finally {
       setIsProcessing(false);
     }
@@ -159,7 +129,7 @@ export default function Home() {
   };
 
   const canGenerate = jewelryImage && (
-    (activeTab === 'upload' && modelImage) || 
+    (activeTab === 'upload' && modelImage) ||
     (activeTab === 'prompt' && modelPrompt.trim()) ||
     (activeTab === 'both' && modelImage)
   );
@@ -167,11 +137,11 @@ export default function Home() {
   const getTabDescription = (tab: string) => {
     switch (tab) {
       case 'upload':
-        return "Upload a person's photo and AI will enhance it by adding your jewelry";
+        return 'Upload a person\'s photo and AI will enhance it by adding your jewelry';
       case 'prompt':
         return 'Describe your ideal model and AI will generate them wearing your jewelry';
       case 'both':
-        return "Upload a person's photo and AI will realistically place your jewelry on them";
+        return 'Upload a person\'s photo and AI will realistically place your jewelry on them';
       default:
         return '';
     }
@@ -217,15 +187,15 @@ export default function Home() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div 
+                <div
                   className="border-2 border-dashed border-slate-300 rounded-xl p-8 text-center hover:border-amber-400 transition-colors cursor-pointer group"
                   onClick={() => jewelryInputRef.current?.click()}
                 >
                   {jewelryImage ? (
                     <div className="space-y-3">
-                      <img 
-                        src={jewelryImage} 
-                        alt="Jewelry" 
+                      <img
+                        src={jewelryImage}
+                        alt="Jewelry"
                         className="w-32 h-32 object-cover mx-auto rounded-lg shadow-lg"
                       />
                       <p className="text-sm text-slate-600">Click to change jewelry image</p>
@@ -252,9 +222,9 @@ export default function Home() {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <Label htmlFor="jewelryType">Jewelry Type</Label>
-                    <Select 
-                      value={jewelryMetadata.type} 
-                      onValueChange={(value) => setJewelryMetadata({...jewelryMetadata, type: value as any})}
+                    <Select
+                      value={jewelryMetadata.type}
+                      onValueChange={(value) => setJewelryMetadata({ ...jewelryMetadata, type: value })}
                     >
                       <SelectTrigger>
                         <SelectValue />
@@ -264,19 +234,29 @@ export default function Home() {
                         <SelectItem value="necklace">Necklace</SelectItem>
                         <SelectItem value="earrings">Earrings</SelectItem>
                         <SelectItem value="bracelet">Bracelet</SelectItem>
+                        <SelectItem value="watch">Watch</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
+                  <div>
+                    <Label htmlFor="circumference">Circumference (mm)</Label>
+                    <Input
+                      id="circumference"
+                      type="number"
+                      value={jewelryMetadata.circumference}
+                      onChange={(e) => setJewelryMetadata({ ...jewelryMetadata, circumference: parseInt(e.target.value) })}
+                    />
+                  </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-3 gap-4">
                   <div>
                     <Label htmlFor="width">Width (mm)</Label>
                     <Input
                       id="width"
                       type="number"
                       value={jewelryMetadata.width}
-                      onChange={(e) => setJewelryMetadata({...jewelryMetadata, width: parseInt(e.target.value)})}
+                      onChange={(e) => setJewelryMetadata({ ...jewelryMetadata, width: parseInt(e.target.value) })}
                     />
                   </div>
                   <div>
@@ -285,7 +265,16 @@ export default function Home() {
                       id="height"
                       type="number"
                       value={jewelryMetadata.height}
-                      onChange={(e) => setJewelryMetadata({...jewelryMetadata, height: parseInt(e.target.value)})}
+                      onChange={(e) => setJewelryMetadata({ ...jewelryMetadata, height: parseInt(e.target.value) })}
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="depth">Depth (mm)</Label>
+                    <Input
+                      id="depth"
+                      type="number"
+                      value={jewelryMetadata.depth}
+                      onChange={(e) => setJewelryMetadata({ ...jewelryMetadata, depth: parseInt(e.target.value) })}
                     />
                   </div>
                 </div>
@@ -295,6 +284,48 @@ export default function Home() {
             {/* AI Analysis */}
             {jewelryImage && (
               <JewelryAnalysis metadata={jewelryMetadata} />
+            )}
+
+            {/* Image Preprocessing */}
+            {modelImage && (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-lg font-semibold text-slate-700">Advanced Processing</h3>
+                  <div className="flex space-x-2">
+                    <Button
+                      variant={showPreprocessing ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setShowPreprocessing(!showPreprocessing)}
+                    >
+                      <Settings className="w-4 h-4 mr-2" />
+                      Preprocessing
+                    </Button>
+                    <Button
+                      variant={showLandmarkDetection ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setShowLandmarkDetection(!showLandmarkDetection)}
+                    >
+                      <Target className="w-4 h-4 mr-2" />
+                      Landmarks
+                    </Button>
+                  </div>
+                </div>
+
+                {showPreprocessing && (
+                  <ImagePreprocessor
+                    originalImage={modelImage}
+                    onProcessedImage={setPreprocessedImage}
+                  />
+                )}
+
+                {showLandmarkDetection && (
+                  <MediaPipeProcessor
+                    imageUrl={preprocessedImage || modelImage}
+                    jewelryType={jewelryMetadata.type}
+                    onLandmarksDetected={setDetectedLandmarks}
+                  />
+                )}
+              </div>
             )}
 
             {/* Model Input - Enhanced with Three Options */}
@@ -324,7 +355,7 @@ export default function Home() {
                       <span>Photo + AI</span>
                     </TabsTrigger>
                   </TabsList>
-                  
+
                   {/* Description for current tab */}
                   <div className="mt-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
                     <div className="flex items-start space-x-2">
@@ -334,17 +365,17 @@ export default function Home() {
                       </div>
                     </div>
                   </div>
-                  
+
                   <TabsContent value="upload" className="space-y-4">
-                    <div 
+                    <div
                       className="border-2 border-dashed border-slate-300 rounded-xl p-8 text-center hover:border-blue-400 transition-colors cursor-pointer group"
                       onClick={() => modelInputRef.current?.click()}
                     >
                       {modelImage ? (
                         <div className="space-y-3">
-                          <img 
-                            src={modelImage} 
-                            alt="Model" 
+                          <img
+                            src={modelImage}
+                            alt="Model"
                             className="w-32 h-32 object-cover mx-auto rounded-lg shadow-lg"
                           />
                           <p className="text-sm text-slate-600">Click to change model image</p>
@@ -367,7 +398,7 @@ export default function Home() {
                       className="hidden"
                     />
                   </TabsContent>
-                  
+
                   <TabsContent value="prompt" className="space-y-6">
                     <div className="space-y-3">
                       <div className="flex items-center justify-between">
@@ -414,7 +445,7 @@ export default function Home() {
                       <div className="grid grid-cols-2 gap-4">
                         <div>
                           <Label htmlFor="ethnicity" className="text-xs">Ethnicity</Label>
-                          <Select value={styleOptions.ethnicity} onValueChange={(value) => setStyleOptions({...styleOptions, ethnicity: value})}>
+                          <Select value={styleOptions.ethnicity} onValueChange={(value) => setStyleOptions({ ...styleOptions, ethnicity: value })}>
                             <SelectTrigger className="h-8 text-sm">
                               <SelectValue placeholder="Select ethnicity" />
                             </SelectTrigger>
@@ -427,7 +458,7 @@ export default function Home() {
                         </div>
                         <div>
                           <Label htmlFor="age" className="text-xs">Age Range</Label>
-                          <Select value={styleOptions.age} onValueChange={(value) => setStyleOptions({...styleOptions, age: value})}>
+                          <Select value={styleOptions.age} onValueChange={(value) => setStyleOptions({ ...styleOptions, age: value })}>
                             <SelectTrigger className="h-8 text-sm">
                               <SelectValue placeholder="Select age" />
                             </SelectTrigger>
@@ -441,7 +472,7 @@ export default function Home() {
                         </div>
                         <div>
                           <Label htmlFor="style" className="text-xs">Photography Style</Label>
-                          <Select value={styleOptions.photographyStyle} onValueChange={(value) => setStyleOptions({...styleOptions, photographyStyle: value})}>
+                          <Select value={styleOptions.photographyStyle} onValueChange={(value) => setStyleOptions({ ...styleOptions, photographyStyle: value })}>
                             <SelectTrigger className="h-8 text-sm">
                               <SelectValue placeholder="Select style" />
                             </SelectTrigger>
@@ -456,7 +487,7 @@ export default function Home() {
                         </div>
                         <div>
                           <Label htmlFor="lighting" className="text-xs">Lighting</Label>
-                          <Select value={styleOptions.lighting} onValueChange={(value) => setStyleOptions({...styleOptions, lighting: value})}>
+                          <Select value={styleOptions.lighting} onValueChange={(value) => setStyleOptions({ ...styleOptions, lighting: value })}>
                             <SelectTrigger className="h-8 text-sm">
                               <SelectValue placeholder="Select lighting" />
                             </SelectTrigger>
@@ -474,15 +505,15 @@ export default function Home() {
                   </TabsContent>
 
                   <TabsContent value="both" className="space-y-4">
-                    <div 
+                    <div
                       className="border-2 border-dashed border-slate-300 rounded-xl p-8 text-center hover:border-green-400 transition-colors cursor-pointer group"
                       onClick={() => modelInputRef.current?.click()}
                     >
                       {modelImage ? (
                         <div className="space-y-3">
-                          <img 
-                            src={modelImage} 
-                            alt="Model" 
+                          <img
+                            src={modelImage}
+                            alt="Model"
                             className="w-32 h-32 object-cover mx-auto rounded-lg shadow-lg"
                           />
                           <p className="text-sm text-slate-600">Click to change person image</p>
@@ -491,7 +522,7 @@ export default function Home() {
                         <div className="space-y-3">
                           <Users className="w-12 h-12 text-slate-400 mx-auto group-hover:text-green-500 transition-colors" />
                           <div>
-                            <p className="font-medium text-slate-700">Upload person&apos;s photo</p>
+                            <p className="font-medium text-slate-700">Upload person's photo</p>
                             <p className="text-sm text-slate-500">AI will place jewelry on this person</p>
                           </div>
                         </div>
@@ -504,12 +535,12 @@ export default function Home() {
                       onChange={handleModelUpload}
                       className="hidden"
                     />
-                    
+
                     <div className="p-3 bg-green-50 rounded-lg border border-green-200">
                       <div className="flex items-start space-x-2">
                         <Users className="w-4 h-4 text-green-600 mt-0.5" />
                         <div className="text-sm text-green-700">
-                          <strong>Photo + AI Mode:</strong> Upload a person&apos;s photo and AI will intelligently place your jewelry on them with realistic sizing, lighting, and positioning.
+                          <strong>Photo + AI Mode:</strong> Upload a person's photo and AI will intelligently place your jewelry on them with realistic sizing, lighting, and positioning.
                         </div>
                       </div>
                     </div>
@@ -524,7 +555,7 @@ export default function Home() {
             )}
 
             {/* Generate Button */}
-            <Button 
+            <Button
               onClick={handleTryOn}
               disabled={!canGenerate || isProcessing}
               className="w-full h-14 text-lg bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 shadow-lg hover:shadow-xl transition-all duration-200 disabled:opacity-50"
@@ -541,13 +572,6 @@ export default function Home() {
                 </div>
               )}
             </Button>
-
-            {error && (
-                <div className="mt-4 text-center p-4 bg-red-100 text-red-700 border border-red-200 rounded-lg">
-                    <p className="font-bold">An error occurred:</p>
-                    <p>{error}</p>
-                </div>
-            )}
           </div>
 
           {/* Right Panel - Results */}
@@ -565,9 +589,9 @@ export default function Home() {
                           {result.method === 'prompt' ? 'AI Generated' : result.method === 'both' ? 'AI Placed' : 'Photo Enhanced'}
                         </Badge>
                       </div>
-                      <Button 
+                      <Button
                         onClick={downloadResult}
-                        variant="outline" 
+                        variant="outline"
                         size="sm"
                         className="hover:bg-green-50"
                       >
@@ -579,9 +603,9 @@ export default function Home() {
                   <CardContent>
                     <div className="space-y-4">
                       <div className="relative overflow-hidden rounded-xl">
-                        <img 
-                          src={result.processedImage} 
-                          alt="Try-on result" 
+                        <img
+                          src={result.processedImage}
+                          alt="Try-on result"
                           className="w-full h-auto shadow-lg"
                         />
                         <div className="absolute top-4 right-4 bg-black/50 text-white px-3 py-1 rounded-full text-sm font-medium">
@@ -591,7 +615,7 @@ export default function Home() {
                           {(result.confidence * 100).toFixed(0)}% Confidence
                         </div>
                       </div>
-                      
+
                       {/* Processing Stats */}
                       <div className="grid grid-cols-3 gap-4 p-4 bg-slate-50 rounded-lg">
                         <div className="text-center">
@@ -616,24 +640,24 @@ export default function Home() {
                           <div className="font-semibold text-slate-800 capitalize">{result.method}</div>
                         </div>
                       </div>
-                      
+
                       {/* Before/After Comparison */}
                       <div className="grid grid-cols-2 gap-4">
                         <div>
                           <p className="text-sm font-medium text-slate-600 mb-2">
                             {result.method === 'prompt' ? 'AI Generated Base' : 'Original Photo'}
                           </p>
-                          <img 
-                            src={result.originalImage} 
-                            alt="Original" 
+                          <img
+                            src={result.originalImage}
+                            alt="Original"
                             className="w-full h-32 object-cover rounded-lg"
                           />
                         </div>
                         <div>
                           <p className="text-sm font-medium text-slate-600 mb-2">With Jewelry</p>
-                          <img 
-                            src={result.processedImage} 
-                            alt="With jewelry" 
+                          <img
+                            src={result.processedImage}
+                            alt="With jewelry"
                             className="w-full h-32 object-cover rounded-lg"
                           />
                         </div>
@@ -689,7 +713,7 @@ export default function Home() {
                       </div>
                     </div>
 
-                    <Button 
+                    <Button
                       className="w-full bg-purple-500 hover:bg-purple-600"
                       onClick={() => {
                         // Apply adjustments logic here
