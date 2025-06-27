@@ -37,7 +37,7 @@ export function JewelryAnalysis({ metadata }: JewelryAnalysisProps) {
               )}
             </div>
           </div>
-          
+
           <div className="space-y-2">
             <div className="flex items-center space-x-2">
               <Target className="w-4 h-4 text-green-500" />

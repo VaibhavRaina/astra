@@ -43,20 +43,20 @@ export function ImagePreprocessor({ originalImage, onProcessedImage }: ImagePrep
 
   const processImage = async () => {
     if (!originalImage) return;
-    
+
     setIsProcessing(true);
-    
+
     try {
       const canvas = canvasRef.current;
       if (!canvas) return;
-      
+
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
 
       // Load original image
       const img = new Image();
       img.crossOrigin = 'anonymous';
-      
+
       await new Promise((resolve, reject) => {
         img.onload = resolve;
         img.onerror = reject;
@@ -69,12 +69,12 @@ export function ImagePreprocessor({ originalImage, onProcessedImage }: ImagePrep
 
       // Apply preprocessing filters
       await applyPreprocessing(ctx, img, settings);
-      
+
       // Convert to data URL
       const processedUrl = canvas.toDataURL('image/png');
       setProcessedImageUrl(processedUrl);
       onProcessedImage(processedUrl);
-      
+
     } catch (error) {
       console.error('Error preprocessing image:', error);
     } finally {
@@ -89,11 +89,11 @@ export function ImagePreprocessor({ originalImage, onProcessedImage }: ImagePrep
   ) => {
     // Draw original image
     ctx.drawImage(img, 0, 0);
-    
+
     // Get image data for pixel manipulation
     const imageData = ctx.getImageData(0, 0, img.width, img.height);
     const data = imageData.data;
-    
+
     // Apply brightness, contrast, and saturation
     for (let i = 0; i < data.length; i += 4) {
       // Brightness adjustment
@@ -101,13 +101,13 @@ export function ImagePreprocessor({ originalImage, onProcessedImage }: ImagePrep
       data[i] = Math.min(255, data[i] * brightnessFactor);     // Red
       data[i + 1] = Math.min(255, data[i + 1] * brightnessFactor); // Green
       data[i + 2] = Math.min(255, data[i + 2] * brightnessFactor); // Blue
-      
+
       // Contrast adjustment
       const contrastFactor = settings.contrast / 100;
       data[i] = Math.min(255, Math.max(0, (data[i] - 128) * contrastFactor + 128));
       data[i + 1] = Math.min(255, Math.max(0, (data[i + 1] - 128) * contrastFactor + 128));
       data[i + 2] = Math.min(255, Math.max(0, (data[i + 2] - 128) * contrastFactor + 128));
-      
+
       // Saturation adjustment (simplified)
       if (settings.saturation !== 100) {
         const gray = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
@@ -117,15 +117,15 @@ export function ImagePreprocessor({ originalImage, onProcessedImage }: ImagePrep
         data[i + 2] = Math.min(255, Math.max(0, gray + (data[i + 2] - gray) * satFactor));
       }
     }
-    
+
     // Apply noise reduction (simplified blur)
     if (settings.noiseReduction > 0) {
       applyGaussianBlur(data, img.width, img.height, settings.noiseReduction / 10);
     }
-    
+
     // Put processed image data back
     ctx.putImageData(imageData, 0, 0);
-    
+
     // Apply sharpening if needed
     if (settings.sharpness !== 100) {
       applySharpening(ctx, img.width, img.height, settings.sharpness / 100);
@@ -136,16 +136,16 @@ export function ImagePreprocessor({ originalImage, onProcessedImage }: ImagePrep
     // Simplified Gaussian blur implementation
     // In a real implementation, you'd use a proper Gaussian kernel
     const tempData = new Uint8ClampedArray(data);
-    
+
     for (let y = 1; y < height - 1; y++) {
       for (let x = 1; x < width - 1; x++) {
         const idx = (y * width + x) * 4;
-        
+
         // Average with surrounding pixels
         for (let c = 0; c < 3; c++) {
           let sum = 0;
           let count = 0;
-          
+
           for (let dy = -1; dy <= 1; dy++) {
             for (let dx = -1; dx <= 1; dx++) {
               const neighborIdx = ((y + dy) * width + (x + dx)) * 4 + c;
@@ -153,7 +153,7 @@ export function ImagePreprocessor({ originalImage, onProcessedImage }: ImagePrep
               count++;
             }
           }
-          
+
           data[idx + c] = Math.round(sum / count);
         }
       }
@@ -165,21 +165,21 @@ export function ImagePreprocessor({ originalImage, onProcessedImage }: ImagePrep
     const imageData = ctx.getImageData(0, 0, width, height);
     const data = imageData.data;
     const originalData = new Uint8ClampedArray(data);
-    
+
     // Apply sharpening kernel
     const kernel = [
       0, -1, 0,
       -1, 5, -1,
       0, -1, 0
     ];
-    
+
     for (let y = 1; y < height - 1; y++) {
       for (let x = 1; x < width - 1; x++) {
         const idx = (y * width + x) * 4;
-        
+
         for (let c = 0; c < 3; c++) {
           let sum = 0;
-          
+
           for (let ky = -1; ky <= 1; ky++) {
             for (let kx = -1; kx <= 1; kx++) {
               const neighborIdx = ((y + ky) * width + (x + kx)) * 4 + c;
@@ -187,12 +187,12 @@ export function ImagePreprocessor({ originalImage, onProcessedImage }: ImagePrep
               sum += originalData[neighborIdx] * kernel[kernelIdx];
             }
           }
-          
+
           data[idx + c] = Math.min(255, Math.max(0, sum * factor + originalData[idx + c] * (1 - factor)));
         }
       }
     }
-    
+
     ctx.putImageData(imageData, 0, 0);
   };
 

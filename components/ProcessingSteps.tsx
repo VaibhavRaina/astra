@@ -25,7 +25,7 @@ export function ProcessingSteps({ isProcessing, method }: ProcessingStepsProps) 
     ];
 
     let methodSteps: ProcessingStep[] = [];
-    
+
     switch (method) {
       case 'prompt':
         methodSteps = [
@@ -93,11 +93,10 @@ export function ProcessingSteps({ isProcessing, method }: ProcessingStepsProps) 
           ) : (
             <Circle className="w-5 h-5 text-slate-300" />
           )}
-          <span className={`text-sm ${
-            step.completed ? 'text-green-700' : 
-            step.active ? 'text-blue-700 font-medium' : 
-            'text-slate-500'
-          }`}>
+          <span className={`text-sm ${step.completed ? 'text-green-700' :
+              step.active ? 'text-blue-700 font-medium' :
+                'text-slate-500'
+            }`}>
             {step.label}
           </span>
         </div>

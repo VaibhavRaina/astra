@@ -26,12 +26,12 @@ export function MediaPipeProcessor({ imageUrl, jewelryType, onLandmarksDetected 
 
   const processImage = async () => {
     setIsProcessing(true);
-    
+
     try {
       // Load the image
       const img = new Image();
       img.crossOrigin = 'anonymous';
-      
+
       await new Promise((resolve, reject) => {
         img.onload = resolve;
         img.onerror = reject;
@@ -41,7 +41,7 @@ export function MediaPipeProcessor({ imageUrl, jewelryType, onLandmarksDetected 
       // Set up canvas
       const canvas = canvasRef.current;
       if (!canvas) return;
-      
+
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
 
@@ -51,14 +51,14 @@ export function MediaPipeProcessor({ imageUrl, jewelryType, onLandmarksDetected 
 
       // Process with MediaPipe (simplified mock implementation)
       const detectedLandmarks = await detectLandmarks(img, jewelryType);
-      
+
       // Draw landmarks on canvas
       drawLandmarks(ctx, detectedLandmarks);
-      
+
       setLandmarks(detectedLandmarks);
       setConfidence(0.85 + Math.random() * 0.1);
       onLandmarksDetected(detectedLandmarks);
-      
+
     } catch (error) {
       console.error('Error processing image:', error);
     } finally {
@@ -69,12 +69,12 @@ export function MediaPipeProcessor({ imageUrl, jewelryType, onLandmarksDetected 
   const detectLandmarks = async (image: HTMLImageElement, type: string): Promise<any> => {
     // This would integrate with actual MediaPipe libraries
     // For now, we'll simulate landmark detection
-    
+
     await new Promise(resolve => setTimeout(resolve, 1000)); // Simulate processing time
-    
+
     const width = image.width;
     const height = image.height;
-    
+
     switch (type.toLowerCase()) {
       case 'earrings':
         return {
@@ -87,7 +87,7 @@ export function MediaPipeProcessor({ imageUrl, jewelryType, onLandmarksDetected 
           ],
           confidence: 0.92
         };
-      
+
       case 'necklace':
         return {
           type: 'pose',
@@ -100,7 +100,7 @@ export function MediaPipeProcessor({ imageUrl, jewelryType, onLandmarksDetected 
           ],
           confidence: 0.88
         };
-      
+
       case 'ring':
         return {
           type: 'hand',
@@ -113,7 +113,7 @@ export function MediaPipeProcessor({ imageUrl, jewelryType, onLandmarksDetected 
           ],
           confidence: 0.90
         };
-      
+
       case 'bracelet':
         return {
           type: 'hand',
@@ -124,7 +124,7 @@ export function MediaPipeProcessor({ imageUrl, jewelryType, onLandmarksDetected 
           ],
           confidence: 0.87
         };
-      
+
       default:
         return {
           type: 'unknown',
@@ -136,24 +136,24 @@ export function MediaPipeProcessor({ imageUrl, jewelryType, onLandmarksDetected 
 
   const drawLandmarks = (ctx: CanvasRenderingContext2D, landmarks: any) => {
     if (!landmarks || !landmarks.landmarks) return;
-    
+
     ctx.fillStyle = '#ff6b6b';
     ctx.strokeStyle = '#ff6b6b';
     ctx.lineWidth = 2;
-    
+
     landmarks.landmarks.forEach((landmark: any, index: number) => {
       // Draw landmark point
       ctx.beginPath();
       ctx.arc(landmark.x, landmark.y, 4, 0, 2 * Math.PI);
       ctx.fill();
-      
+
       // Draw label
       ctx.fillStyle = '#ffffff';
       ctx.font = '12px Arial';
       ctx.fillText(landmark.label || `Point ${index}`, landmark.x + 8, landmark.y - 8);
       ctx.fillStyle = '#ff6b6b';
     });
-    
+
     // Draw connections for specific jewelry types
     if (landmarks.type === 'face' && landmarks.landmarks.length >= 2) {
       // Connect ears for earrings
@@ -166,7 +166,7 @@ export function MediaPipeProcessor({ imageUrl, jewelryType, onLandmarksDetected 
         ctx.stroke();
       }
     }
-    
+
     if (landmarks.type === 'pose') {
       // Connect neck points for necklaces
       const neckPoints = landmarks.landmarks.filter((l: any) => l.label.includes('neck'));
@@ -208,7 +208,7 @@ export function MediaPipeProcessor({ imageUrl, jewelryType, onLandmarksDetected 
             </div>
           )}
         </div>
-        
+
         {landmarks && (
           <div className="grid grid-cols-2 gap-4 p-4 bg-slate-50 rounded-lg">
             <div className="text-center">
@@ -227,8 +227,8 @@ export function MediaPipeProcessor({ imageUrl, jewelryType, onLandmarksDetected 
             </div>
           </div>
         )}
-        
-        <Button 
+
+        <Button
           onClick={processImage}
           disabled={isProcessing}
           className="w-full"

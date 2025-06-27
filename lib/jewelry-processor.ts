@@ -40,12 +40,34 @@ export class JewelryTryOnProcessor {
     try {
       const { jewelryImage, modelImage, jewelryMetadata } = request;
 
+      console.log('Starting GPT-Image-1 jewelry generation...');
+      console.log('Jewelry type:', jewelryMetadata.type);
+
+      // For prompt mode: Generate new image with Indian model wearing jewelry
       if (!modelImage) {
-        throw new Error('Model image is required for jewelry try-on');
+        console.log('No model image provided - generating new Indian model image');
+
+        // Generate new image with Indian model wearing the jewelry
+        const result = await this.callGPTImage1(null, jewelryImage, jewelryMetadata);
+        console.log('GPT-Image-1 generation completed');
+
+        // Apply post-processing to ensure quality
+        const finalResult = await this.postProcessResult(result, jewelryMetadata);
+        console.log('Post-processing completed');
+
+        const processingTime = Date.now() - startTime;
+
+        return {
+          processedImage: finalResult.toString('base64'),
+          originalImage: undefined, // No original image in generation mode
+          confidence: 0.95,
+          processingTime,
+          landmarks: undefined, // No landmarks needed for generation mode
+        };
       }
 
-      console.log('Starting OpenAI jewelry try-on processing...');
-      console.log('Jewelry type:', jewelryMetadata.type);
+      // For upload mode: Process existing model image with jewelry
+      console.log('Model image provided - processing with existing image');
 
       // Step 1: Detect landmarks to create proper mask
       const landmarks = await this.landmarkDetector.detectLandmarks(modelImage, jewelryMetadata.type);
@@ -347,33 +369,22 @@ export class JewelryTryOnProcessor {
   }
 
   private async callGPTImage1(
-    modelImage: Buffer,
+    modelImage: Buffer | null,
     jewelryImage: Buffer,
     jewelryMetadata: JewelryMetadata
   ): Promise<Buffer> {
     try {
-      console.log('Starting GPT-Image-1 jewelry try-on with actual input images...');
+      console.log('Starting GPT-Image-1 jewelry generation with Indian model...');
 
-      // Create specific and restrictive prompt based on jewelry type
-      const prompt = this.createSpecificJewelryPrompt(jewelryMetadata);
+      // Create a prompt for generating a new image with Indian model wearing the jewelry
+      const prompt = this.createIndianModelPrompt(jewelryMetadata);
 
-      console.log('Calling GPT-Image-1 edit endpoint with both images and prompt:', prompt);
+      console.log('Calling GPT-Image-1 generation endpoint with jewelry image and prompt:', prompt);
 
-      // Convert images to proper PNG format using Sharp
-      const modelImagePng = await sharp(modelImage)
-        .png()
-        .toBuffer();
-
-      // Create a Blob from the PNG buffer with proper MIME type
-      const imageBlob = new Blob([modelImagePng], { type: 'image/png' });
-
-      // Create a File object from the Blob
-      const imageFile = new File([imageBlob], 'model.png', { type: 'image/png' });
-
-      // Use the edit endpoint with the primary image and prompt
-      const response = await this.openai.images.edit({
+      // Use the generation endpoint to create a new image with Indian model wearing the jewelry
+      // Note: GPT-Image-1 generation endpoint only takes text prompts, not image inputs
+      const response = await this.openai.images.generate({
         model: 'gpt-image-1',
-        image: imageFile,
         prompt: prompt,
         n: 1,
         size: '1024x1024'
@@ -563,6 +574,123 @@ export class JewelryTryOnProcessor {
         return `${basePrompt}Place the bracelet on the person's wrist. Keep the person's hand, skin tone, lighting, and background exactly the same as the original. Only add the bracelet with realistic shadows and lighting that matches the original photo.`;
       default:
         return `${basePrompt}Place the jewelry appropriately on the person. Keep the person's appearance, lighting, and background exactly the same as the original. Only add the jewelry with realistic shadows and lighting that matches the original photo.`;
+    }
+  }
+
+  private createIndianModelPrompt(jewelryMetadata: JewelryMetadata): string {
+    const jewelryType = jewelryMetadata.type.toLowerCase();
+    const basePrompt = `Create a photorealistic image of a beautiful Indian model wearing a ${jewelryType}. `;
+
+    let specificPrompt = '';
+    switch (jewelryType) {
+      case 'necklace':
+        specificPrompt = `The Indian model should be elegantly posed to showcase the necklace, which should drape naturally around her neck. The model should have beautiful Indian features, long dark hair, and be wearing elegant attire that complements the necklace. Professional portrait photography with excellent lighting that highlights both the model's beauty and the necklace details.`;
+        break;
+
+      case 'earrings':
+        specificPrompt = `The Indian model should be elegantly posed to showcase the earrings, which should be clearly visible on both ears. The model should have beautiful Indian features, styled hair that doesn't obscure the earrings, and be wearing elegant attire. Professional portrait photography with excellent lighting that highlights both the model's beauty and the earring details.`;
+        break;
+
+      case 'ring':
+        specificPrompt = `The Indian model should be elegantly posed with her hand positioned to showcase the ring, which should be clearly visible on her finger. The model should have beautiful Indian features, well-manicured hands, and be wearing elegant attire. Professional portrait photography with excellent lighting that highlights both the model's beauty and the ring details.`;
+        break;
+
+      case 'bracelet':
+        specificPrompt = `The Indian model should be elegantly posed with her wrist positioned to showcase the bracelet, which should be clearly visible around her wrist. The model should have beautiful Indian features, graceful hands, and be wearing elegant attire. Professional portrait photography with excellent lighting that highlights both the model's beauty and the bracelet details.`;
+        break;
+
+      default:
+        specificPrompt = `The Indian model should be elegantly posed to showcase the ${jewelryType}. The model should have beautiful Indian features and be wearing elegant attire that complements the jewelry. Professional portrait photography with excellent lighting that highlights both the model's beauty and the jewelry details.`;
+    }
+
+    return `${basePrompt}${specificPrompt} The image should be high quality, realistic, and professionally composed with a clean, elegant background. The jewelry should be the focal point while the Indian model's natural beauty enhances the overall composition. Studio lighting, fashion photography style.`;
+  }
+
+  private createCombinedImagePrompt(jewelryMetadata: JewelryMetadata): string {
+    const jewelryType = jewelryMetadata.type.toLowerCase();
+    const basePrompt = `This image contains both a person and a ${jewelryType} item. Please create a photorealistic jewelry try-on image where the ${jewelryType} is naturally worn by the person. `;
+
+    switch (jewelryType) {
+      case 'necklace':
+        return `${basePrompt}Place the necklace around the person's neck in a natural, elegant way. The necklace should drape properly and have realistic lighting, shadows, and reflections that match the original photo. Keep the person's face, hair, clothing, and background exactly the same. Only add the necklace - do not add any other jewelry items.`;
+
+      case 'earrings':
+        return `${basePrompt}Place the earrings on the person's ears in a natural way. The earrings should be positioned correctly on both ears with realistic lighting and shadows that match the original photo. Keep the person's face, hair, clothing, and background exactly the same. Only add the earrings - do not add any other jewelry items.`;
+
+      case 'ring':
+        return `${basePrompt}Place the ring on the person's finger in a natural way. The ring should fit properly on the finger with realistic lighting and shadows that match the original photo. Keep the person's hand, clothing, and background exactly the same. Only add the ring - do not add any other jewelry items.`;
+
+      case 'bracelet':
+        return `${basePrompt}Place the bracelet on the person's wrist in a natural way. The bracelet should fit properly around the wrist with realistic lighting and shadows that match the original photo. Keep the person's hand, arm, clothing, and background exactly the same. Only add the bracelet - do not add any other jewelry items.`;
+
+      default:
+        return `${basePrompt}Place the ${jewelryType} on the appropriate location on the person in a natural way. The jewelry should have realistic lighting and shadows that match the original photo. Keep the person's appearance, clothing, and background exactly the same. Only add the ${jewelryType} - do not add any other jewelry items.`;
+    }
+  }
+
+  private async createCombinedInputImage(modelImage: Buffer, jewelryImage: Buffer): Promise<Buffer> {
+    try {
+      console.log('Creating combined input image for GPT-Image-1...');
+
+      // Get dimensions of both images
+      const modelMetadata = await sharp(modelImage).metadata();
+      const jewelryMetadata = await sharp(jewelryImage).metadata();
+
+      const targetWidth = 1024;
+      const targetHeight = 1024;
+
+      // Resize model image to fit the left side of the combined image
+      const resizedModelImage = await sharp(modelImage)
+        .resize({
+          width: Math.floor(targetWidth * 0.7), // 70% of width for model
+          height: targetHeight,
+          fit: 'contain',
+          background: { r: 255, g: 255, b: 255, alpha: 1 }
+        })
+        .png()
+        .toBuffer();
+
+      // Resize jewelry image to fit the right side
+      const resizedJewelryImage = await sharp(jewelryImage)
+        .resize({
+          width: Math.floor(targetWidth * 0.3), // 30% of width for jewelry
+          height: Math.floor(targetHeight * 0.3), // Smaller height for jewelry
+          fit: 'contain',
+          background: { r: 255, g: 255, b: 255, alpha: 1 }
+        })
+        .png()
+        .toBuffer();
+
+      // Create combined image with model on left and jewelry on right
+      const combinedImage = await sharp({
+        create: {
+          width: targetWidth,
+          height: targetHeight,
+          channels: 3,
+          background: { r: 255, g: 255, b: 255 }
+        }
+      })
+        .composite([
+          {
+            input: resizedModelImage,
+            left: 0,
+            top: 0
+          },
+          {
+            input: resizedJewelryImage,
+            left: Math.floor(targetWidth * 0.7),
+            top: Math.floor(targetHeight * 0.1) // Position jewelry in upper right
+          }
+        ])
+        .png()
+        .toBuffer();
+
+      console.log('Combined input image created successfully');
+      return combinedImage;
+
+    } catch (error) {
+      console.error('Error creating combined input image:', error);
+      throw new Error(`Failed to create combined input image: ${error}`);
     }
   }
 
