@@ -55,10 +55,14 @@ export class JewelryTryOnProcessor {
       const result = await this.callGPTImage1(modelImage, jewelryImage, jewelryMetadata);
       console.log('GPT-Image-1 generation completed');
 
+      // Step 3: Apply post-processing to ensure quality and accuracy
+      const finalResult = await this.postProcessResult(result, jewelryMetadata);
+      console.log('Post-processing completed');
+
       const processingTime = Date.now() - startTime;
 
       return {
-        processedImage: result.toString('base64'),
+        processedImage: finalResult.toString('base64'),
         originalImage: modelImage.toString('base64'),
         confidence: 0.88 + Math.random() * 0.07,
         processingTime,
@@ -153,19 +157,21 @@ export class JewelryTryOnProcessor {
   }
 
   private generatePlacementPrompt(metadata: JewelryMetadata): string {
-    const basePrompt = `Place the provided jewelry image onto the ${this.getPlacementArea(metadata.type)} with realistic lighting and shadows. Do not alter the jewelry design.`;
+    const jewelryType = metadata.type.toLowerCase();
+    const restrictiveBase = `IMPORTANT: Only add the ${jewelryType} to the ${this.getPlacementArea(metadata.type)}. Do not add any other jewelry items. `;
+    const basePrompt = `${restrictiveBase}Place the provided jewelry image onto the ${this.getPlacementArea(metadata.type)} with realistic lighting and shadows. Do not alter the jewelry design.`;
 
-    switch (metadata.type.toLowerCase()) {
+    switch (jewelryType) {
       case 'earrings':
-        return `${basePrompt} Ensure the earrings are properly positioned on both ears with natural lighting that matches the person's face.`;
+        return `${basePrompt} Ensure the earrings are properly positioned on both ears with natural lighting that matches the person's face. Do NOT add necklaces, rings, or bracelets.`;
       case 'necklace':
-        return `${basePrompt} Position the necklace naturally around the neck, following the neckline and ensuring proper draping.`;
+        return `${basePrompt} Position the necklace naturally around the neck, following the neckline and ensuring proper draping. Do NOT add earrings, rings, or bracelets.`;
       case 'ring':
-        return `${basePrompt} Place the ring on the appropriate finger with realistic sizing and lighting that matches the hand.`;
+        return `${basePrompt} Place the ring on the appropriate finger with realistic sizing and lighting that matches the hand. Do NOT add earrings, necklaces, or bracelets.`;
       case 'bracelet':
-        return `${basePrompt} Position the bracelet on the wrist with natural fit and lighting that matches the arm.`;
+        return `${basePrompt} Position the bracelet on the wrist with natural fit and lighting that matches the arm. Do NOT add earrings, necklaces, or rings.`;
       default:
-        return basePrompt;
+        return `${basePrompt} Do NOT add any other jewelry items besides the ${jewelryType}.`;
     }
   }
 
@@ -298,7 +304,7 @@ export class JewelryTryOnProcessor {
 
   private async createJewelryMask(
     modelImage: Buffer,
-    landmarks: LandmarkResult,
+    landmarks: any,
     jewelryMetadata: JewelryMetadata
   ): Promise<Buffer> {
     const { width, height } = await sharp(modelImage).metadata();
@@ -348,8 +354,8 @@ export class JewelryTryOnProcessor {
     try {
       console.log('Starting GPT-Image-1 jewelry try-on with actual input images...');
 
-      // Create prompt for combining the actual input images
-      const prompt = `Combine these images to show the person from the first image wearing the jewelry from the second image. The jewelry should be naturally placed on the person while preserving their original appearance, facial features, hair, and clothing. Make it look realistic as if the person is actually wearing the jewelry. Professional photography quality.`;
+      // Create specific and restrictive prompt based on jewelry type
+      const prompt = this.createSpecificJewelryPrompt(jewelryMetadata);
 
       console.log('Calling GPT-Image-1 edit endpoint with both images and prompt:', prompt);
 
@@ -513,6 +519,36 @@ export class JewelryTryOnProcessor {
     return `${basePrompt} ${specificPrompt} The result should look natural and realistic, maintaining the original person's appearance while seamlessly integrating the jewelry. Ensure proper lighting, shadows, and reflections to make the jewelry appear as if it was actually worn by the person. High quality, professional photography style.`;
   }
 
+  private createSpecificJewelryPrompt(jewelryMetadata: JewelryMetadata): string {
+    const jewelryType = jewelryMetadata.type.toLowerCase();
+
+    // Create a list of jewelry types to exclude
+    const allJewelryTypes = ['earrings', 'necklace', 'ring', 'bracelet', 'watch', 'anklet', 'chain', 'pendant'];
+    const excludeTypes = allJewelryTypes.filter(type => type !== jewelryType);
+    const exclusionList = excludeTypes.join(', ');
+
+    // Base instruction with strong emphasis on exclusion
+    const restrictiveBase = `CRITICAL INSTRUCTION: Add ONLY a ${jewelryType} and absolutely NO other jewelry. `;
+    const exclusionInstruction = `FORBIDDEN: Do not add ${exclusionList}. `;
+
+    switch (jewelryType) {
+      case 'necklace':
+        return `${restrictiveBase}${exclusionInstruction}Place a single necklace around the person's neck. The person should NOT be wearing any earrings, rings, bracelets, watches, or other jewelry. Keep the person's face, hair, clothing, and background exactly the same. The necklace should drape naturally around the neck with realistic lighting and shadows that match the original photo. Professional photography quality. Ensure no other jewelry is visible anywhere on the person.`;
+
+      case 'earrings':
+        return `${restrictiveBase}${exclusionInstruction}Place earrings on the person's ears only. The person should NOT be wearing any necklaces, rings, bracelets, watches, or other jewelry. Keep the person's face, hair, clothing, and background exactly the same. The earrings should be positioned naturally on both ears with realistic lighting and shadows that match the original photo. Professional photography quality. Ensure no other jewelry is visible anywhere on the person.`;
+
+      case 'ring':
+        return `${restrictiveBase}${exclusionInstruction}Place a single ring on the person's finger only. The person should NOT be wearing any earrings, necklaces, bracelets, watches, or other jewelry. Keep the person's hand, clothing, and background exactly the same. The ring should fit naturally on the finger with realistic lighting and shadows that match the original photo. Professional photography quality. Ensure no other jewelry is visible anywhere on the person.`;
+
+      case 'bracelet':
+        return `${restrictiveBase}${exclusionInstruction}Place a single bracelet on the person's wrist only. The person should NOT be wearing any earrings, necklaces, rings, watches, or other jewelry. Keep the person's hand, arm, clothing, and background exactly the same. The bracelet should fit naturally around the wrist with realistic lighting and shadows that match the original photo. Professional photography quality. Ensure no other jewelry is visible anywhere on the person.`;
+
+      default:
+        return `${restrictiveBase}${exclusionInstruction}Add ONLY the ${jewelryType} to the appropriate location on the person. The person should NOT be wearing any other jewelry items. Keep the person's appearance, clothing, and background exactly the same. The jewelry should be positioned naturally with realistic lighting and shadows that match the original photo. Professional photography quality. Ensure no other jewelry is visible anywhere on the person.`;
+    }
+  }
+
   private createCombinationPrompt(jewelryMetadata: JewelryMetadata): string {
     const basePrompt = "I have two images: 1) A person's photo, and 2) A jewelry item. Please analyze both images and create a photorealistic image where the jewelry from the second image is placed on the person from the first image. ";
 
@@ -544,5 +580,31 @@ export class JewelryTryOnProcessor {
       .sharpen({ sigma: 0.5, m1: 0.5, m2: 2 }) // Subtle sharpening
       .png()
       .toBuffer();
+  }
+
+  private async postProcessResult(
+    generatedImage: Buffer,
+    jewelryMetadata: JewelryMetadata
+  ): Promise<Buffer> {
+    try {
+      console.log('Starting post-processing for jewelry type:', jewelryMetadata.type);
+
+      // Apply quality enhancements
+      const enhancedImage = await sharp(generatedImage)
+        .modulate({
+          brightness: 1.01, // Slight brightness adjustment
+          saturation: 1.02  // Slight saturation boost
+        })
+        .sharpen({ sigma: 0.3, m1: 0.3, m2: 1.5 }) // Gentle sharpening
+        .png()
+        .toBuffer();
+
+      console.log('Post-processing completed successfully');
+      return enhancedImage;
+    } catch (error) {
+      console.error('Error in post-processing:', error);
+      // Return original image if post-processing fails
+      return generatedImage;
+    }
   }
 }
